@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Ondas 1D — PET Lavina</title>
+
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+        body { background-color: #f8f9fa; color: #0f172a; padding: 15px; display: flex; flex-direction: column; gap: 12px; min-height: 100vh; }
+        
+        .header { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 20px; }
+        .header h1 { font-size: 1.1rem; font-weight: 700; color: #0f172a; }
+        .header p { font-size: 0.8rem; color: #64748b; margin-top: 2px; }
+
+        .main-container { display: flex; gap: 15px; flex: 1; flex-wrap: wrap; }
+        
+        .canvas-card { flex: 1; min-width: 320px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; display: flex; flex-direction: column; }
+        canvas { width: 100%; height: 100%; min-height: 400px; display: block; border-radius: 8px; }
+
+        .sidebar { width: 340px; display: flex; flex-direction: column; gap: 10px; }
+        .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; }
+        .card h2 { font-size: 0.85rem; font-weight: 700; margin-bottom: 8px; color: #1e293b; }
+
+        .control-group { display: grid; grid-template-columns: 100px 1fr 60px; gap: 6px; align-items: center; margin-bottom: 6px; font-size: 0.75rem; color: #475569; }
+        input[type=range] { width: 100%; }
+
+        .analysis-text { font-family: monospace; font-size: 0.75rem; color: #1e293b; line-height: 1.4; }
+
+        .bottom-bar { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; display: flex; justify-content: center; align-items: center; gap: 10px; }
+        button { border: none; padding: 6px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; color: white; font-size: 0.8rem; }
+        .btn-start { background: #10b981; }
+        .btn-pause { background: #f59e0b; }
+        .btn-reset { background: #6366f1; }
+        .time-label { font-family: monospace; font-weight: 700; font-size: 0.85rem; margin-left: 10px; color: #1e293b; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Simulador de Propagação de Ondas 1D — Mudança de Meio</h1>
+        <p>Eq. de Onda: ∂/∂x [ μ(x) ∂u/∂x ] = ρ(x) ∂²u/∂t² | Condição Absorvente Fatorada: (∂/∂t ± c ∂/∂x) u = 0</p>
+    </div>
+
+    <div class="main-container">
+        <div class="canvas-card">
+            <canvas id="waveCanvas"></canvas>
+        </div>
+
+        <div class="sidebar">
+            <div class="card">
+                <h2>Meio 1</h2>
+                <div class="control-group">
+                    <label>Velocidade c1:</label>
+                    <input type="range" id="sldC1" min="500" max="4000" value="1500">
+                    <span id="valC1">1500 m/s</span>
+                </div>
+                <div class="control-group">
+                    <label>Densidade ρ1:</label>
+                    <input type="range" id="sldRho1" min="500" max="5000" value="1000">
+                    <span id="valRho1">1000 kg/m³</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Meio 2</h2>
+                <div class="control-group">
+                    <label>Velocidade c2:</label>
+                    <input type="range" id="sldC2" min="500" max="5000" value="3000">
+                    <span id="valC2">3000 m/s</span>
+                </div>
+                <div class="control-group">
+                    <label>Densidade ρ2:</label>
+                    <input type="range" id="sldRho2" min="500" max="5000" value="2500">
+                    <span id="valRho2">2500 kg/m³</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Pulso & Interface</h2>
+                <div class="control-group">
+                    <label>Interface:</label>
+                    <input type="range" id="sldInterface" min="1.5" max="4.5" step="0.05" value="3.0">
+                    <span id="valInterface">3.00 m</span>
+                </div>
+                <div class="control-group">
+                    <label>Amplitude:</label>
+                    <input type="range" id="sldAmp" min="0.2" max="2.0" step="0.1" value="1.0">
+                    <span id="valAmp">1.0</span>
+                </div>
+                <div class="control-group">
+                    <label>Largura σ:</label>
+                    <input type="range" id="sldWidth" min="0.08" max="0.45" step="0.01" value="0.25">
+                    <span id="valWidth">0.25 m</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Análise Teórica</h2>
+                <div class="analysis-text" id="analysisText"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bottom-bar">
+        <button class="btn-start" onclick="startSim()">Disparar / Iniciar</button>
+        <button class="btn-pause" onclick="pauseSim()">Pausar</button>
+        <button class="btn-reset" onclick="resetSim()">Reiniciar</button>
+        <span class="time-label" id="lblTime">Tempo Simulada: 0.0000 s</span>
+    </div>
+
+    <script>
+        const NX = 800;
+        const DX = 0.0075;
+        
+        let uPast = new Float64Array(NX);
+        let uPresent = new Float64Array(NX);
+        let uFuture = new Float64Array(NX);
+        let rho = new Float64Array(NX);
+        let mu = new Float64Array(NX);
+
+        let dt = 0;
+        let time = 0;
+        let isRunning = false;
+        let animationFrameId = null;
+
+        let c1 = 1500, rho1 = 1000;
+        let c2 = 3000, rho2 = 2500;
+        let interfaceX = 3.0;
+        let pulseAmp = 1.0, pulseWidth = 0.25, pulseX0 = 0.8;
+
+        const canvas = document.getElementById('waveCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function updateParams() {
+            c1 = parseFloat(document.getElementById('sldC1').value);
+            rho1 = parseFloat(document.getElementById('sldRho1').value);
+            c2 = parseFloat(document.getElementById('sldC2').value);
+            rho2 = parseFloat(document.getElementById('sldRho2').value);
+            interfaceX = parseFloat(document.getElementById('sldInterface').value);
+            pulseAmp = parseFloat(document.getElementById('sldAmp').value);
+            pulseWidth = parseFloat(document.getElementById('sldWidth').value);
+
+            document.getElementById('valC1').innerText = c1 + ' m/s';
+            document.getElementById('valRho1').innerText = rho1 + ' kg/m³';
+            document.getElementById('valC2').innerText = c2 + ' m/s';
+            document.getElementById('valRho2').innerText = rho2 + ' kg/m³';
+            document.getElementById('valInterface').innerText = interfaceX.toFixed(2) + ' m';
+            document.getElementById('valAmp').innerText = pulseAmp.toFixed(1);
+            document.getElementById('valWidth').innerText = pulseWidth.toFixed(2) + ' m';
+
+            resetSim();
+        }
+
+        document.querySelectorAll('input[type=range]').forEach(input => {
+            input.addEventListener('input', updateParams);
+        });
+
+        function resetSim() {
+            isRunning = false;
+            time = 0;
+
+            let mu1 = rho1 * c1 * c1;
+            let mu2 = rho2 * c2 * c2;
+            let cMax = Math.max(c1, c2);
+
+            dt = 0.75 * DX / cMax;
+            let interfaceIdx = Math.floor(interfaceX / DX);
+
+            for (let i = 0; i < NX; i++) {
+                uPast[i] = 0; uPresent[i] = 0; uFuture[i] = 0;
+                if (i < interfaceIdx) { rho[i] = rho1; mu[i] = mu1; }
+                else { rho[i] = rho2; mu[i] = mu2; }
+            }
+
+            for (let i = 0; i < NX; i++) {
+                let x = i * DX;
+                let arg0 = (x - pulseX0) / pulseWidth;
+                let argPrev = (x + c1 * dt - pulseX0) / pulseWidth;
+                uPresent[i] = pulseAmp * Math.exp(-arg0 * arg0);
+                uPast[i] = pulseAmp * Math.exp(-argPrev * argPrev);
+            }
+
+            updateCoefficients();
+            render();
+        }
+
+        function stepFDTD() {
+            let dtsq = dt * dt, dxsq = DX * DX;
+            for (let i = 1; i < NX - 1; i++) {
+                let muPlus = 2.0 * mu[i] * mu[i + 1] / (mu[i] + mu[i + 1]);
+                let muMinus = 2.0 * mu[i] * mu[i - 1] / (mu[i] + mu[i - 1]);
+                let spatial = (muPlus * (uPresent[i + 1] - uPresent[i]) - muMinus * (uPresent[i] - uPresent[i - 1])) / dxsq;
+                uFuture[i] = 2.0 * uPresent[i] - uPast[i] + (dtsq / rho[i]) * spatial;
+            }
+
+            let S1 = c1 * dt / DX;
+            uFuture[0] = uPresent[0] + S1 * (uPresent[1] - uPresent[0]);
+
+            let S2 = c2 * dt / DX;
+            uFuture[NX - 1] = uPresent[NX - 1] - S2 * (uPresent[NX - 1] - uPresent[NX - 2]);
+
+            uPast.set(uPresent);
+            uPresent.set(uFuture);
+            time += dt;
+        }
+
+        function updateCoefficients() {
+            let z1 = rho1 * c1, z2 = rho2 * c2;
+            let ra = (z2 - z1) / (z2 + z1);
+            let ta = 2.0 * z2 / (z2 + z1);
+            let re = ra * ra, te = (z1 / z2) * ta * ta;
+
+            document.getElementById('analysisText').innerHTML = 
+                `Z1 = ${z1.toExponential(2)} N·s/m³<br>` +
+                `Z2 = ${z2.toExponential(2)} N·s/m³<br>` +
+                `R_A = ${ra >= 0 ? '+' : ''}${ra.toFixed(3)} (Reflexão Amp.)<br>` +
+                `T_A = ${ta >= 0 ? '+' : ''}${ta.toFixed(3)} (Transm. Amp.)<br>` +
+                `R_E = ${re.toFixed(3)} (Refletividade)<br>` +
+                `T_E = ${te.toFixed(3)} (Transmitividade)`;
+        }
+
+        function render() {
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+
+            let w = canvas.width, h = canvas.height;
+            let domainMeters = NX * DX;
+            let interfacePx = (interfaceX / domainMeters) * w;
+
+            ctx.clearRect(0, 0, w, h);
+
+            ctx.fillStyle = 'rgba(240, 249, 255, 0.8)';
+            ctx.fillRect(0, 0, interfacePx, h);
+
+            ctx.fillStyle = 'rgba(255, 241, 242, 0.8)';
+            ctx.fillRect(interfacePx, 0, w - interfacePx, h);
+
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 6]);
+            ctx.beginPath();
+            ctx.moveTo(interfacePx, 20); ctx.lineTo(interfacePx, h - 20);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.font = 'bold 12px sans-serif';
+            ctx.fillStyle = '#1e40af';
+            ctx.fillText(`MEIO 1 (c1 = ${c1} m/s)`, 15, 25);
+
+            ctx.fillStyle = '#9f1239';
+            ctx.fillText(`MEIO 2 (c2 = ${c2} m/s)`, interfacePx + 15, 25);
+
+            let centerY = h / 2;
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(10, centerY); ctx.lineTo(w - 10, centerY);
+            ctx.stroke();
+
+            let scaleY = h * 0.32;
+            ctx.beginPath();
+            ctx.moveTo(0, centerY);
+
+            for (let i = 0; i < NX; i++) {
+                let xPx = ((i * DX) / domainMeters) * w;
+                let yPx = centerY - uPresent[i] * scaleY;
+                if (i === 0) ctx.moveTo(xPx, yPx);
+                else ctx.lineTo(xPx, yPx);
+            }
+
+            ctx.strokeStyle = '#2563eb';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+
+            document.getElementById('lblTime').innerText = `Tempo Simulada: ${time.toFixed(4)} s`;
+        }
+
+        function loop() {
+            if (isRunning) {
+                for (let i = 0; i < 12; i++) stepFDTD();
+                render();
+                animationFrameId = requestAnimationFrame(loop);
+            }
+        }
+
+        function startSim() { if (!isRunning) { isRunning = true; loop(); } }
+        function pauseSim() { isRunning = false; }
+
+        window.addEventListener('resize', render);
+        resetSim();
+    </script>
+</body>
+</html>
